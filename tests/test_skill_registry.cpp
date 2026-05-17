@@ -2,8 +2,8 @@
 // TODO: A 同学补充测试用例
 
 #include "skill/skill_registry.h"
+#include "test_helpers.h"
 #include <iostream>
-#include <cassert>
 
 using namespace clawlite;
 
@@ -17,13 +17,13 @@ void testRegisterAndFind() {
     entry.source = SkillSource::Builtin;
 
     registry.registerSkill(entry);
-    assert(registry.size() == 1);
+    TEST_ASSERT(registry.size() == 1);
 
     auto found = registry.findSkill("test_skill");
-    assert(found != nullptr);
-    assert(found->definition.name == "test_skill");
+    TEST_ASSERT(found != nullptr);
+    TEST_ASSERT(found->definition.name == "test_skill");
 
-    assert(registry.findSkill("nonexistent") == nullptr);
+    TEST_ASSERT(registry.findSkill("nonexistent") == nullptr);
     std::cout << "  [PASS] testRegisterAndFind\n";
 }
 
@@ -40,9 +40,9 @@ void testBuildSkillPrompt() {
     }
 
     std::string prompt = registry.buildSkillPrompt(18000);
-    assert(!prompt.empty());
-    assert(prompt.find("<available_skills>") != std::string::npos);
-    assert(prompt.find("skill_0") != std::string::npos);
+    TEST_ASSERT(!prompt.empty());
+    TEST_ASSERT(prompt.find("<available_skills>") != std::string::npos);
+    TEST_ASSERT(prompt.find("skill_0") != std::string::npos);
     std::cout << "  [PASS] testBuildSkillPrompt\n";
 }
 
@@ -54,9 +54,12 @@ void testBinarySearchPromptLimit() {
 
 int run_skill_registry_tests() {
     std::cout << "Skill Registry Tests:\n";
+    RESET_FAILURES();
     testRegisterAndFind();
     testBuildSkillPrompt();
     testBinarySearchPromptLimit();
-    std::cout << "All skill registry tests passed.\n";
-    return 0;
+    int f = GET_FAILURES();
+    if (f == 0) std::cout << "All skill registry tests passed.\n";
+    else std::cout << f << " skill registry test(s) failed.\n";
+    return f;
 }

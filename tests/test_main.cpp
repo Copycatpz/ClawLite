@@ -12,16 +12,23 @@ extern int run_session_store_tests();
 extern int run_prompt_builder_tests();
 
 int main() {
-    std::cout << "========== ClawLite Tests ==========\n\n";
+    std::cout << "========== ClawLite Tests ==========\n\n" << std::flush;
 
     int failures = 0;
     failures += run_skill_parser_tests();
+    std::cout << "[DEBUG] skill tests done, failures=" << failures << "\n" << std::flush;
     failures += run_skill_registry_tests();
+    std::cout << "[DEBUG] registry tests done, failures=" << failures << "\n" << std::flush;
     failures += run_chunker_tests();
+    std::cout << "[DEBUG] chunker tests done, failures=" << failures << "\n" << std::flush;
     failures += run_memory_store_tests();
+    std::cout << "[DEBUG] memory_store tests done, failures=" << failures << "\n" << std::flush;
     failures += run_search_tests();
+    std::cout << "[DEBUG] search tests done, failures=" << failures << "\n" << std::flush;
     failures += run_session_store_tests();
+    std::cout << "[DEBUG] session tests done, failures=" << failures << "\n" << std::flush;
     failures += run_prompt_builder_tests();
+    std::cout << "[DEBUG] prompt tests done, failures=" << failures << "\n" << std::flush;
 
     std::cout << "\n========== Results ==========\n";
     if (failures == 0) {

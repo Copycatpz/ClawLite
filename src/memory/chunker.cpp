@@ -69,35 +69,39 @@ std::vector<MemoryChunk> Chunker::chunkMarkdown(
     int maxChars = static_cast<int>(config.chunkTokens * config.charsPerToken);
     int stepChars = static_cast<int>((config.chunkTokens - config.overlapTokens) * config.charsPerToken);
 
-    // TODO: 实现滑动窗口逻辑
-    // int start = 0;
-    // while (start < (int)lines.size()) {
-    //     int end = start;
-    //     int charCount = 0;
-    //     while (end < (int)lines.size() && charCount < maxChars) {
-    //         charCount += (int)lines[end].size() + 1;
-    //         end++;
-    //     }
-    //     // 拼接文本
-    //     std::string text;
-    //     for (int i = start; i < end; i++) {
-    //         if (i > start) text += '\n';
-    //         text += lines[i];
-    //     }
-    //     MemoryChunk chunk;
-    //     chunk.path = filePath;
-    //     chunk.startLine = start + 1;
-    //     chunk.endLine = end;
-    //     chunk.text = text;
-    //     chunk.hash = computeHash(text);
-    //     chunks.push_back(chunk);
-    //     // 前进
-    //     int stepUsed = 0;
-    //     while (stepUsed < stepChars && start < end) {
-    //         stepUsed += (int)lines[start].size() + 1;
-    //         start++;
-    //     }
-    // }
+    // 滑动窗口算法
+    // 参考：openclaw-main/packages/memory-host-sdk/host/internal.ts:chunkMarkdown
+    int start = 0;
+    while (start < (int)lines.size()) {
+        int end = start;
+        int charCount = 0;
+        // 扩展窗口右边界
+        while (end < (int)lines.size() && charCount < maxChars) {
+            charCount += (int)lines[end].size() + 1;
+            end++;
+        }
+        // 拼接文本
+        std::string text;
+        for (int i = start; i < end; i++) {
+            if (i > start) text += '\n';
+            text += lines[i];
+        }
+        MemoryChunk chunk;
+        chunk.path = filePath;
+        chunk.startLine = start + 1;  // 1-indexed
+        chunk.endLine = end;
+        chunk.text = text;
+        chunk.hash = computeHash(text);
+        chunks.push_back(chunk);
+        // 滑动窗口前进
+        int stepUsed = 0;
+        while (stepUsed < stepChars && start < end) {
+            stepUsed += (int)lines[start].size() + 1;
+            start++;
+        }
+        // 防止无限循环：至少前进 1 行
+        if (start == end && end < (int)lines.size()) start++;
+    }
 
     return chunks;
 }

@@ -4,8 +4,8 @@
 #include "memory/search_manager.h"
 #include "memory/memory_store.h"
 #include "memory/embedding.h"
+#include "test_helpers.h"
 #include <iostream>
-#include <cassert>
 
 using namespace clawlite;
 
@@ -14,8 +14,8 @@ void testCosineSimilarity() {
     std::vector<double> b = {1.0, 0.0, 0.0};
     std::vector<double> c = {0.0, 1.0, 0.0};
 
-    assert(cosineSimilarity(a, b) > 0.99);  // 相同向量
-    assert(cosineSimilarity(a, c) < 0.01);  // 正交向量
+    TEST_ASSERT(cosineSimilarity(a, b) > 0.99);  // 相同向量
+    TEST_ASSERT(cosineSimilarity(a, c) < 0.01);  // 正交向量
     std::cout << "  [PASS] testCosineSimilarity\n";
 }
 
@@ -58,9 +58,12 @@ void testHybridSearch() {
 
 int run_search_tests() {
     std::cout << "Search Tests:\n";
+    RESET_FAILURES();
     testCosineSimilarity();
     testVectorSearch();
     testHybridSearch();
-    std::cout << "All search tests passed.\n";
-    return 0;
+    int f = GET_FAILURES();
+    if (f == 0) std::cout << "All search tests passed.\n";
+    else std::cout << f << " search test(s) failed.\n";
+    return f;
 }

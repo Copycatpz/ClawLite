@@ -3,8 +3,8 @@
 
 #include "llm/prompt_builder.h"
 #include "skill/skill_registry.h"
+#include "test_helpers.h"
 #include <iostream>
-#include <cassert>
 
 using namespace clawlite;
 
@@ -18,8 +18,8 @@ void testBuildBasePrompt() {
     SkillRegistry skills;
     auto prompt = PromptBuilder::buildSystemPrompt(ctx, skills);
 
-    assert(!prompt.empty());
-    assert(prompt.find("helpful assistant") != std::string::npos);
+    TEST_ASSERT(!prompt.empty());
+    TEST_ASSERT(prompt.find("helpful assistant") != std::string::npos);
     std::cout << "  [PASS] testBuildBasePrompt\n";
 }
 
@@ -38,7 +38,7 @@ void testBuildWithSkills() {
     skills.registerSkill(entry);
 
     auto prompt = PromptBuilder::buildSystemPrompt(ctx, skills);
-    assert(prompt.find("weather") != std::string::npos);
+    TEST_ASSERT(prompt.find("weather") != std::string::npos);
     std::cout << "  [PASS] testBuildWithSkills\n";
 }
 
@@ -50,16 +50,19 @@ void testBuildToolsPrompt() {
     tools.push_back(t1);
 
     auto prompt = PromptBuilder::buildToolsPrompt(tools);
-    assert(prompt.find("calculator") != std::string::npos);
-    assert(prompt.find("Calculate math") != std::string::npos);
+    TEST_ASSERT(prompt.find("calculator") != std::string::npos);
+    TEST_ASSERT(prompt.find("Calculate math") != std::string::npos);
     std::cout << "  [PASS] testBuildToolsPrompt\n";
 }
 
 int run_prompt_builder_tests() {
     std::cout << "Prompt Builder Tests:\n";
+    RESET_FAILURES();
     testBuildBasePrompt();
     testBuildWithSkills();
     testBuildToolsPrompt();
-    std::cout << "All prompt builder tests passed.\n";
-    return 0;
+    int f = GET_FAILURES();
+    if (f == 0) std::cout << "All prompt builder tests passed.\n";
+    else std::cout << f << " prompt builder test(s) failed.\n";
+    return f;
 }

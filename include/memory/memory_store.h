@@ -16,10 +16,10 @@
 #include <vector>
 #include <optional>
 
-namespace clawlite {
-
-// SQLite 前向声明（避免在头文件中引入 sqlite3.h）
+// SQLite 前向声明（放在 namespace 外面，避免创建 clawlite::sqlite3）
 struct sqlite3;
+
+namespace clawlite {
 
 class MemoryStore {
 public:

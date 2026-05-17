@@ -3,132 +3,322 @@
 // 这是工作量最大的文件，需要调用 SQLite C API
 
 #include "memory/memory_store.h"
-
-// TODO: #include "third_party/sqlite3/sqlite3.h"
-// 如果用 vcpkg: #include <sqlite3.h>
+#include "sqlite3.h"
+#include <sstream>
+#include <cstdio>
 
 namespace clawlite {
+
+// ── 辅助函数 ──────────────────────────────────────────────
+
+// 执行无返回值的 SQL
+static bool execSql(sqlite3* db, const char* sql) {
+    char* errMsg = nullptr;
+    int rc = sqlite3_exec(db, sql, nullptr, nullptr, &errMsg);
+    if (rc != SQLITE_OK) {
+        if (errMsg) sqlite3_free(errMsg);
+        return false;
+    }
+    return true;
+}
+
+// vector<double> → JSON 字符串 "[0.1,0.2,...]"
+static std::string embeddingToJson(const std::vector<double>& vec) {
+    std::ostringstream ss;
+    ss << "[";
+    for (size_t i = 0; i < vec.size(); i++) {
+        if (i > 0) ss << ",";
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%.6f", vec[i]);
+        ss << buf;
+    }
+    ss << "]";
+    return ss.str();
+}
+
+// JSON 字符串 → vector<double>
+static std::vector<double> jsonToEmbedding(const std::string& json) {
+    std::vector<double> result;
+    size_t pos = json.find('[');
+    if (pos == std::string::npos) return result;
+    pos++;
+    while (pos < json.size()) {
+        while (pos < json.size() && (json[pos] == ' ' || json[pos] == ',')) pos++;
+        if (pos >= json.size() || json[pos] == ']') break;
+        size_t end = pos;
+        while (end < json.size() && json[end] != ',' && json[end] != ']') end++;
+        try {
+            result.push_back(std::stod(json.substr(pos, end - pos)));
+        } catch (...) {
+            return {};
+        }
+        pos = end;
+    }
+    return result;
+}
 
 MemoryStore::MemoryStore() = default;
 MemoryStore::~MemoryStore() { close(); }
 
 bool MemoryStore::open(const std::string& dbPath) {
-    // TODO: 实现
-    // 1. sqlite3_open(dbPath, &m_db)
-    // 2. 启用 WAL 模式：PRAGMA journal_mode=WAL
-    // 3. 调用 createSchema() 和 createFtsTable()
-    return false;
+    // 参考：openclaw-main/packages/memory-host-sdk/host/memory-schema.ts:ensureMemoryIndexSchema
+    int rc = sqlite3_open(dbPath.c_str(), &m_db);
+    if (rc != SQLITE_OK) {
+        m_db = nullptr;
+        return false;
+    }
+    // 启用 WAL 模式（更好的并发读性能）
+    execSql(m_db, "PRAGMA journal_mode=WAL");
+    execSql(m_db, "PRAGMA foreign_keys=ON");
+    createSchema();
+    createFtsTable();
+    return true;
 }
 
 void MemoryStore::close() {
-    // TODO: 实现
-    // if (m_db) { sqlite3_close(m_db); m_db = nullptr; }
+    if (m_db) { sqlite3_close(m_db); m_db = nullptr; }
 }
 
 void MemoryStore::createSchema() {
-    // TODO: 实现 — 创建 4 张表
-    //
     // 参考：openclaw-main/packages/memory-host-sdk/host/memory-schema.ts:ensureMemoryIndexSchema
-    //
-    // CREATE TABLE IF NOT EXISTS meta (
-    //     key TEXT PRIMARY KEY,
-    //     value TEXT NOT NULL
-    // );
-    //
-    // CREATE TABLE IF NOT EXISTS files (
-    //     path TEXT PRIMARY KEY,
-    //     source TEXT,
-    //     hash TEXT,
-    //     mtime INTEGER,
-    //     size INTEGER
-    // );
-    //
-    // CREATE TABLE IF NOT EXISTS chunks (
-    //     id TEXT PRIMARY KEY,
-    //     path TEXT,
-    //     source TEXT,
-    //     start_line INTEGER,
-    //     end_line INTEGER,
-    //     hash TEXT,
-    //     text TEXT,
-    //     embedding TEXT,  -- JSON 格式的向量
-    //     updated_at INTEGER
-    // );
-    //
-    // CREATE TABLE IF NOT EXISTS embedding_cache (
-    //     provider TEXT,
-    //     model TEXT,
-    //     hash TEXT,
-    //     embedding TEXT,
-    //     dims INTEGER,
-    //     updated_at INTEGER,
-    //     PRIMARY KEY (provider, model, hash)
-    // );
-    //
-    // CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path);
-    // CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source);
+    // 表结构：meta / files / chunks / embedding_cache + 2 个索引
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS files (
+            path TEXT PRIMARY KEY,
+            source TEXT NOT NULL DEFAULT 'memory',
+            hash TEXT NOT NULL,
+            mtime INTEGER NOT NULL,
+            size INTEGER NOT NULL
+        )
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS chunks (
+            id TEXT PRIMARY KEY,
+            path TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'memory',
+            start_line INTEGER,
+            end_line INTEGER,
+            hash TEXT NOT NULL,
+            text TEXT NOT NULL,
+            embedding TEXT NOT NULL DEFAULT '[]',
+            updated_at INTEGER NOT NULL
+        )
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS embedding_cache (
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            hash TEXT NOT NULL,
+            embedding TEXT NOT NULL,
+            dims INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (provider, model, hash)
+        )
+    )");
+
+    execSql(m_db, "CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path)");
+    execSql(m_db, "CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source)");
 }
 
 void MemoryStore::createFtsTable() {
-    // TODO: 实现 — 创建 FTS5 虚拟表
-    //
-    // CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-    //     text, id, path, source,
-    //     tokenize='unicode61'
-    // );
-    //
-    // 注意：FTS5 需要 SQLite 编译时启用 -DSQLITE_ENABLE_FTS5
+    // FTS5 虚拟表，text 列建索引，其他列 UNINDEXED
+    // 需要 SQLite 编译时启用 -DSQLITE_ENABLE_FTS5（CMakeLists.txt 已配置）
+    execSql(m_db, R"(
+        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+            text, id, path, source,
+            tokenize='unicode61'
+        )
+    )");
 }
 
 // ── 文件索引 ──────────────────────────────────────────────
 
 void MemoryStore::upsertFile(const FileEntry& entry) {
-    // TODO: 实现
-    // INSERT OR REPLACE INTO files (path, hash, mtime, size) VALUES (?, ?, ?, ?)
+    if (!m_db) return;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+        "INSERT OR REPLACE INTO files (path, hash, mtime, size) VALUES (?, ?, ?, ?)",
+        -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, entry.path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, entry.hash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 3, entry.mtimeMs);
+    sqlite3_bind_int64(stmt, 4, entry.size);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
 
 void MemoryStore::removeFile(const std::string& path) {
-    // TODO: 实现
-    // DELETE FROM files WHERE path = ?
+    if (!m_db) return;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, "DELETE FROM files WHERE path = ?", -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
 
 std::optional<FileEntry> MemoryStore::getFile(const std::string& path) {
-    // TODO: 实现
-    // SELECT path, hash, mtime, size FROM files WHERE path = ?
-    return std::nullopt;
+    if (!m_db) return std::nullopt;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+        "SELECT path, hash, mtime, size FROM files WHERE path = ?",
+        -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+
+    std::optional<FileEntry> result;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        FileEntry entry;
+        entry.path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        entry.hash = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        entry.mtimeMs = sqlite3_column_int64(stmt, 2);
+        entry.size = sqlite3_column_int64(stmt, 3);
+        result = entry;
+    }
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 std::vector<FileEntry> MemoryStore::getAllFiles() {
-    // TODO: 实现
-    // SELECT path, hash, mtime, size FROM files
-    return {};
+    std::vector<FileEntry> results;
+    if (!m_db) return results;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+        "SELECT path, hash, mtime, size FROM files", -1, &stmt, nullptr);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        FileEntry entry;
+        entry.path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        entry.hash = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        entry.mtimeMs = sqlite3_column_int64(stmt, 2);
+        entry.size = sqlite3_column_int64(stmt, 3);
+        results.push_back(entry);
+    }
+    sqlite3_finalize(stmt);
+    return results;
 }
 
 // ── 块存储 ────────────────────────────────────────────────
 
 void MemoryStore::upsertChunk(const MemoryChunk& chunk) {
-    // TODO: 实现
-    // 1. INSERT OR REPLACE INTO chunks (id, path, start_line, end_line, hash, text, embedding, updated_at)
-    // 2. INSERT OR REPLACE INTO chunks_fts (text, id, path) — 同步 FTS 索引
-    //
-    // embedding 存储为 JSON 字符串: "[0.1, 0.2, 0.3, ...]"
+    if (!m_db) return;
+    // 写 chunks 表，embedding 存为 JSON 字符串
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, R"(
+        INSERT OR REPLACE INTO chunks
+        (id, path, source, start_line, end_line, hash, text, embedding, updated_at)
+        VALUES (?, ?, 'memory', ?, ?, ?, ?, ?, ?)
+    )", -1, &stmt, nullptr);
+
+    std::string embJson = embeddingToJson(chunk.embedding);
+    int64_t ts = nowMs();
+
+    sqlite3_bind_text(stmt, 1, chunk.hash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, chunk.path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, chunk.startLine);
+    sqlite3_bind_int(stmt, 4, chunk.endLine);
+    sqlite3_bind_text(stmt, 5, chunk.hash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, chunk.text.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, embJson.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 8, ts);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    // 同步 FTS5 索引：先删旧的，再插新的
+    sqlite3_stmt* ftsDel = nullptr;
+    sqlite3_prepare_v2(m_db, "DELETE FROM chunks_fts WHERE id = ?", -1, &ftsDel, nullptr);
+    sqlite3_bind_text(ftsDel, 1, chunk.hash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(ftsDel);
+    sqlite3_finalize(ftsDel);
+
+    sqlite3_stmt* ftsIns = nullptr;
+    sqlite3_prepare_v2(m_db,
+        "INSERT INTO chunks_fts (text, id, path, source) VALUES (?, ?, ?, 'memory')",
+        -1, &ftsIns, nullptr);
+    sqlite3_bind_text(ftsIns, 1, chunk.text.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ftsIns, 2, chunk.hash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ftsIns, 3, chunk.path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(ftsIns);
+    sqlite3_finalize(ftsIns);
 }
 
 void MemoryStore::removeChunksByFile(const std::string& path) {
-    // TODO: 实现
-    // DELETE FROM chunks WHERE path = ?
-    // DELETE FROM chunks_fts WHERE path = ?
+    if (!m_db) return;
+    // 先获取该文件的所有 chunk id，用于清理 FTS
+    std::vector<std::string> ids;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, "SELECT id FROM chunks WHERE path = ?", -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ids.push_back(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+    }
+    sqlite3_finalize(stmt);
+
+    // 删除 chunks 表
+    sqlite3_prepare_v2(m_db, "DELETE FROM chunks WHERE path = ?", -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    // 删除 FTS 索引
+    for (const auto& id : ids) {
+        sqlite3_prepare_v2(m_db, "DELETE FROM chunks_fts WHERE id = ?", -1, &stmt, nullptr);
+        sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
 }
 
 std::vector<MemoryChunk> MemoryStore::getAllChunks() {
-    // TODO: 实现
-    // SELECT id, path, start_line, end_line, hash, text, embedding FROM chunks
-    return {};
+    std::vector<MemoryChunk> results;
+    if (!m_db) return results;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+        "SELECT id, path, start_line, end_line, hash, text, embedding FROM chunks",
+        -1, &stmt, nullptr);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        MemoryChunk chunk;
+        chunk.path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        chunk.startLine = sqlite3_column_int(stmt, 2);
+        chunk.endLine = sqlite3_column_int(stmt, 3);
+        chunk.hash = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        chunk.text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        const char* embStr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+        if (embStr) chunk.embedding = jsonToEmbedding(embStr);
+        results.push_back(chunk);
+    }
+    sqlite3_finalize(stmt);
+    return results;
 }
 
 std::vector<MemoryChunk> MemoryStore::getChunksByFile(const std::string& path) {
-    // TODO: 实现
-    return {};
+    std::vector<MemoryChunk> results;
+    if (!m_db) return results;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+        "SELECT id, path, start_line, end_line, hash, text, embedding FROM chunks WHERE path = ?",
+        -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        MemoryChunk chunk;
+        chunk.path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        chunk.startLine = sqlite3_column_int(stmt, 2);
+        chunk.endLine = sqlite3_column_int(stmt, 3);
+        chunk.hash = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        chunk.text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        const char* embStr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+        if (embStr) chunk.embedding = jsonToEmbedding(embStr);
+        results.push_back(chunk);
+    }
+    sqlite3_finalize(stmt);
+    return results;
 }
 
 // ── 全文搜索 ──────────────────────────────────────────────
@@ -136,17 +326,32 @@ std::vector<MemoryChunk> MemoryStore::getChunksByFile(const std::string& path) {
 std::vector<std::pair<std::string, double>> MemoryStore::ftsSearch(
     const std::string& query, int limit
 ) {
-    // TODO: 实现 — FTS5 搜索
-    //
-    // SELECT id, bm25(chunks_fts) as score
-    // FROM chunks_fts
-    // WHERE chunks_fts MATCH ?
-    // ORDER BY score
-    // LIMIT ?
-    //
-    // 注意：FTS5 MATCH 语法，query 需要转义特殊字符
+    // FTS5 搜索，BM25 排序
     // BM25 分数越小越好（负数），取反后越大越好
-    return {};
+    std::vector<std::pair<std::string, double>> results;
+    if (!m_db || query.empty()) return results;
+
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(m_db,
+        "SELECT id, bm25(chunks_fts) as score "
+        "FROM chunks_fts "
+        "WHERE chunks_fts MATCH ? "
+        "ORDER BY score "
+        "LIMIT ?",
+        -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return results;
+
+    sqlite3_bind_text(stmt, 1, query.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, limit);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        std::string id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        double bm25Score = sqlite3_column_double(stmt, 1);
+        // BM25 越小越好（负数），取反使越大越好
+        results.emplace_back(id, -bm25Score);
+    }
+    sqlite3_finalize(stmt);
+    return results;
 }
 
 // ── 嵌入缓存 ─────────────────────────────────────────────
@@ -155,8 +360,25 @@ void MemoryStore::cacheEmbedding(const std::string& hash,
                                   const std::string& provider,
                                   const std::string& model,
                                   const std::vector<double>& embedding) {
-    // TODO: 实现
-    // INSERT OR REPLACE INTO embedding_cache (provider, model, hash, embedding, dims, updated_at)
+    if (!m_db) return;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, R"(
+        INSERT OR REPLACE INTO embedding_cache
+        (provider, model, hash, embedding, dims, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    )", -1, &stmt, nullptr);
+
+    std::string embJson = embeddingToJson(embedding);
+    int64_t ts = nowMs();
+
+    sqlite3_bind_text(stmt, 1, provider.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, model.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, hash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, embJson.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 5, static_cast<int>(embedding.size()));
+    sqlite3_bind_int64(stmt, 6, ts);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
 
 std::optional<std::vector<double>> MemoryStore::getCachedEmbedding(
@@ -164,46 +386,92 @@ std::optional<std::vector<double>> MemoryStore::getCachedEmbedding(
     const std::string& provider,
     const std::string& model
 ) {
-    // TODO: 实现
-    // SELECT embedding FROM embedding_cache WHERE provider=? AND model=? AND hash=?
-    return std::nullopt;
+    if (!m_db) return std::nullopt;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+        "SELECT embedding FROM embedding_cache WHERE provider=? AND model=? AND hash=?",
+        -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, provider.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, model.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, hash.c_str(), -1, SQLITE_TRANSIENT);
+
+    std::optional<std::vector<double>> result;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* embStr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        if (embStr) {
+            auto vec = jsonToEmbedding(embStr);
+            if (!vec.empty()) result = vec;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 // ── 元数据 ────────────────────────────────────────────────
 
 void MemoryStore::setMeta(const std::string& key, const std::string& value) {
-    // TODO: 实现
-    // INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)
+    if (!m_db) return;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+        -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, value.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
 
 std::optional<std::string> MemoryStore::getMeta(const std::string& key) {
-    // TODO: 实现
-    // SELECT value FROM meta WHERE key = ?
-    return std::nullopt;
+    if (!m_db) return std::nullopt;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+        "SELECT value FROM meta WHERE key = ?", -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+
+    std::optional<std::string> result;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+    }
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 // ── 事务 ──────────────────────────────────────────────────
 
 void MemoryStore::beginTransaction() {
-    // TODO: sqlite3_exec(m_db, "BEGIN TRANSACTION", ...)
+    if (m_db) execSql(m_db, "BEGIN TRANSACTION");
 }
 
 void MemoryStore::commit() {
-    // TODO: sqlite3_exec(m_db, "COMMIT", ...)
+    if (m_db) execSql(m_db, "COMMIT");
 }
 
 void MemoryStore::rollback() {
-    // TODO: sqlite3_exec(m_db, "ROLLBACK", ...)
+    if (m_db) execSql(m_db, "ROLLBACK");
 }
 
 int MemoryStore::fileCount() const {
-    // TODO: SELECT COUNT(*) FROM files
-    return 0;
+    if (!m_db) return 0;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, "SELECT COUNT(*) FROM files", -1, &stmt, nullptr);
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return count;
 }
 
 int MemoryStore::chunkCount() const {
-    // TODO: SELECT COUNT(*) FROM chunks
-    return 0;
+    if (!m_db) return 0;
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, "SELECT COUNT(*) FROM chunks", -1, &stmt, nullptr);
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return count;
 }
 
 } // namespace clawlite

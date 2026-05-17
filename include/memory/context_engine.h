@@ -9,6 +9,7 @@
 #include <vector>
 #include <string>
 #include <optional>
+#include <memory>
 
 namespace clawlite {
 
@@ -90,5 +91,8 @@ public:
     virtual int getIndexedFileCount() const = 0;
     virtual int getIndexedChunkCount() const = 0;
 };
+
+// 创建默认上下文引擎实例
+std::unique_ptr<IContextEngine> createContextEngine();
 
 } // namespace clawlite

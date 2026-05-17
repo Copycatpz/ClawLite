@@ -45,7 +45,7 @@ std::vector<Message> SessionStore::getHistory(const std::string& sessionKey, int
 
     const auto& all = it->second.messages;
     int turnCount = 0;
-    int startIdx = (int)all.size();
+    int startIdx = 0;  // 默认返回全部
 
     for (int i = (int)all.size() - 1; i >= 0; i--) {
         if (all[i].role == Role::User) {
@@ -98,20 +98,18 @@ SessionKeyInfo SessionStore::parseSessionKey(const std::string& key) {
         parts.push_back(part);
     }
 
-    // TODO: 解析各字段
-    // if (parts.size() >= 1 && parts[0] == "agent") {
-    //     if (parts.size() >= 2) info.agentId = parts[1];
-    //     if (parts.size() >= 3) info.channel = parts[2];
-    //     if (parts.size() >= 4) info.peerKind = parts[3];
-    //     if (parts.size() >= 5) info.peerId = parts[4];
-    //     // 查找 thread: 标记
-    //     for (size_t i = 5; i < parts.size() - 1; i++) {
-    //         if (parts[i] == "thread") {
-    //             info.threadId = parts[i + 1];
-    //             break;
-    //         }
-    //     }
-    // }
+    if (parts.size() >= 1 && parts[0] == "agent") {
+        if (parts.size() >= 2) info.agentId = parts[1];
+        if (parts.size() >= 3) info.channel = parts[2];
+        if (parts.size() >= 4) info.peerKind = parts[3];
+        if (parts.size() >= 5) info.peerId = parts[4];
+        for (size_t i = 5; i < parts.size() - 1; i++) {
+            if (parts[i] == "thread") {
+                info.threadId = parts[i + 1];
+                break;
+            }
+        }
+    }
 
     return info;
 }

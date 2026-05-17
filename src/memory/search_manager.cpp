@@ -43,29 +43,62 @@ std::vector<SearchResult> SearchManager::search(
 }
 
 std::vector<SearchResult> SearchManager::vectorSearch(const std::string& query, int topK) {
-    // TODO: 实现 — 向量搜索
-    //
-    // 算法：
-    //   1. queryEmbedding = m_embedding->embedQuery(query)
-    //   2. allChunks = m_store.getAllChunks()
-    //   3. 对每个 chunk:
-    //      score = cosineSimilarity(queryEmbedding, chunk.embedding)
-    //   4. 按 score 降序排序
-    //   5. 取 top-k
-    //
-    // 这是暴力遍历 + 排序，适合小规模数据
-    // 大规模数据需要 ANN 索引（如 HNSW），但对课程作业来说暴力搜索足够
-    return {};
+    // 向量搜索：暴力遍历 + 排序，O(n*d)
+    // 大规模数据需要 ANN 索引（如 HNSW），课程作业规模足够
+    std::vector<SearchResult> results;
+    if (query.empty()) return results;
+
+    auto queryEmbedding = m_embedding->embedQuery(query);
+    auto allChunks = m_store.getAllChunks();
+
+    for (const auto& chunk : allChunks) {
+        if (chunk.embedding.empty()) continue;
+        double score = cosineSimilarity(queryEmbedding, chunk.embedding);
+        SearchResult r;
+        r.path = chunk.path;
+        r.startLine = chunk.startLine;
+        r.endLine = chunk.endLine;
+        r.score = score;
+        r.vectorScore = score;
+        r.snippet = chunk.text.substr(0, 200);
+        r.source = SearchSource::Memory;
+        results.push_back(r);
+    }
+
+    // 按分数降序排序，取 top-k
+    std::sort(results.begin(), results.end(),
+        [](const SearchResult& a, const SearchResult& b) {
+            return a.score > b.score;
+        });
+    if ((int)results.size() > topK) results.resize(topK);
+    return results;
 }
 
 std::vector<SearchResult> SearchManager::ftsSearch(const std::string& query, int topK) {
-    // TODO: 实现 — FTS5 全文搜索
-    //
-    // 算法：
-    //   1. ftsResults = m_store.ftsSearch(query, topK)
-    //   2. 对每个结果，从 chunks 表获取完整信息
-    //   3. 构造 SearchResult（textScore = BM25 分数归一化后的值）
-    return {};
+    // FTS5 全文搜索：调 memory_store 的 FTS，再查完整 chunk 信息
+    std::vector<SearchResult> results;
+    if (query.empty()) return results;
+
+    auto ftsResults = m_store.ftsSearch(query, topK);
+    for (const auto& [chunkId, bm25Score] : ftsResults) {
+        // 用 chunkId（即 hash）查找完整 chunk
+        auto allChunks = m_store.getAllChunks();
+        for (const auto& chunk : allChunks) {
+            if (chunk.hash == chunkId) {
+                SearchResult r;
+                r.path = chunk.path;
+                r.startLine = chunk.startLine;
+                r.endLine = chunk.endLine;
+                r.score = bm25Score;
+                r.textScore = bm25Score;
+                r.snippet = chunk.text.substr(0, 200);
+                r.source = SearchSource::Memory;
+                results.push_back(r);
+                break;
+            }
+        }
+    }
+    return results;
 }
 
 std::vector<SearchResult> SearchManager::mergeResults(
@@ -74,16 +107,41 @@ std::vector<SearchResult> SearchManager::mergeResults(
     double vectorWeight,
     double textWeight
 ) {
-    // TODO: 实现 — 结果合并算法
-    //
-    // 算法：
-    //   1. 归一化两个列表的分数到 [0, 1]
-    //   2. 用 unordered_map<string, SearchResult> 按 path+line 去重
-    //   3. 向量结果：score = vectorWeight * normalizedScore
-    //   4. 全文结果：score = textWeight * normalizedScore
-    //   5. 如果同一个 chunk 在两个列表中都出现，分数相加
-    //   6. 返回合并后的列表
-    return {};
+    // 结果合并：按 path+startLine 去重，加权求和
+    // 数据结构：unordered_map 实现 O(1) 查重
+    std::unordered_map<std::string, size_t> index;  // key → 在 merged 中的位置
+    std::vector<SearchResult> merged;
+
+    // 归一化两个列表
+    auto normVec = vectorResults;
+    auto normText = textResults;
+    normalizeScores(normVec);
+    normalizeScores(normText);
+
+    // 加入向量搜索结果
+    for (auto& r : normVec) {
+        std::string key = r.path + ":" + std::to_string(r.startLine);
+        r.score *= vectorWeight;
+        merged.push_back(r);
+        index[key] = merged.size() - 1;
+    }
+
+    // 加入全文搜索结果，重复的累加分数
+    for (auto& r : normText) {
+        std::string key = r.path + ":" + std::to_string(r.startLine);
+        r.score *= textWeight;
+        auto it = index.find(key);
+        if (it != index.end()) {
+            // 同一 chunk 在两个列表都出现，分数相加
+            merged[it->second].score += r.score;
+            merged[it->second].textScore = r.textScore;
+        } else {
+            merged.push_back(r);
+            index[key] = merged.size() - 1;
+        }
+    }
+
+    return merged;
 }
 
 void SearchManager::normalizeScores(std::vector<SearchResult>& results) {

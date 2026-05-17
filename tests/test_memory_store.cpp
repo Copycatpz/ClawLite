@@ -2,8 +2,8 @@
 // TODO: B 同学补充测试用例
 
 #include "memory/memory_store.h"
+#include "test_helpers.h"
 #include <iostream>
-#include <cassert>
 #include <cstdio>
 
 using namespace clawlite;
@@ -11,7 +11,7 @@ using namespace clawlite;
 void testOpenClose() {
     MemoryStore store;
     bool ok = store.open(":memory:");
-    assert(ok);
+    TEST_ASSERT(ok);
     store.close();
     std::cout << "  [PASS] testOpenClose\n";
 }
@@ -27,15 +27,17 @@ void testFileCrud() {
     entry.size = 500;
 
     store.upsertFile(entry);
-    assert(store.fileCount() == 1);
+    TEST_ASSERT(store.fileCount() == 1);
 
     auto got = store.getFile("test.md");
-    assert(got.has_value());
-    assert(got->path == "test.md");
-    assert(got->hash == "abc123");
+    TEST_ASSERT(got.has_value());
+    if (got.has_value()) {
+        TEST_ASSERT(got->path == "test.md");
+        TEST_ASSERT(got->hash == "abc123");
+    }
 
     store.removeFile("test.md");
-    assert(store.fileCount() == 0);
+    TEST_ASSERT(store.fileCount() == 0);
 
     store.close();
     std::cout << "  [PASS] testFileCrud\n";
@@ -53,14 +55,16 @@ void testChunkCrud() {
     chunk.hash = "def456";
 
     store.upsertChunk(chunk);
-    assert(store.chunkCount() == 1);
+    TEST_ASSERT(store.chunkCount() == 1);
 
     auto chunks = store.getChunksByFile("test.md");
-    assert(chunks.size() == 1);
-    assert(chunks[0].text == "Hello world");
+    TEST_ASSERT(chunks.size() == 1);
+    if (!chunks.empty()) {
+        TEST_ASSERT(chunks[0].text == "Hello world");
+    }
 
     store.removeChunksByFile("test.md");
-    assert(store.chunkCount() == 0);
+    TEST_ASSERT(store.chunkCount() == 0);
 
     store.close();
     std::cout << "  [PASS] testChunkCrud\n";
@@ -80,9 +84,11 @@ void testEmbeddingCache() {
     store.cacheEmbedding("hash1", "local", "mock", embedding);
 
     auto cached = store.getCachedEmbedding("hash1", "local", "mock");
-    assert(cached.has_value());
-    assert(cached->size() == 3);
-    assert((*cached)[0] == 0.1);
+    TEST_ASSERT(cached.has_value());
+    if (cached.has_value()) {
+        TEST_ASSERT(cached->size() == 3);
+        TEST_ASSERT((*cached)[0] == 0.1);
+    }
 
     store.close();
     std::cout << "  [PASS] testEmbeddingCache\n";
@@ -90,11 +96,14 @@ void testEmbeddingCache() {
 
 int run_memory_store_tests() {
     std::cout << "Memory Store Tests:\n";
+    RESET_FAILURES();
     testOpenClose();
     testFileCrud();
     testChunkCrud();
     testFtsSearch();
     testEmbeddingCache();
-    std::cout << "All memory store tests passed.\n";
-    return 0;
+    int f = GET_FAILURES();
+    if (f == 0) std::cout << "All memory store tests passed.\n";
+    else std::cout << f << " memory store test(s) failed.\n";
+    return f;
 }

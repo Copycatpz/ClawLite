@@ -2,8 +2,8 @@
 // TODO: A 同学补充测试用例
 
 #include "skill/skill_parser.h"
+#include "test_helpers.h"
 #include <iostream>
-#include <cassert>
 
 using namespace clawlite;
 
@@ -14,9 +14,9 @@ user-invocable: true
 )";
 
     auto result = SkillParser::parseFrontmatter(block);
-    assert(result["name"] == "weather");
-    assert(result["description"] == "Get weather information for a city");
-    assert(result["user-invocable"] == "true");
+    TEST_ASSERT(result["name"] == "weather");
+    TEST_ASSERT(result["description"] == "Get weather information for a city");
+    TEST_ASSERT(result["user-invocable"] == "true");
     std::cout << "  [PASS] testParseFrontmatter\n";
 }
 
@@ -30,8 +30,8 @@ Multiple lines.
 )";
 
     auto [fm, body] = SkillParser::extractSections(content);
-    assert(!fm.empty());
-    assert(body.find("This is the body content.") != std::string::npos);
+    TEST_ASSERT(!fm.empty());
+    TEST_ASSERT(body.find("This is the body content.") != std::string::npos);
     std::cout << "  [PASS] testExtractSections\n";
 }
 
@@ -42,9 +42,12 @@ void testParseComplete() {
 
 int run_skill_parser_tests() {
     std::cout << "Skill Parser Tests:\n";
+    RESET_FAILURES();
     testParseFrontmatter();
     testExtractSections();
     testParseComplete();
-    std::cout << "All skill parser tests passed.\n";
-    return 0;
+    int f = GET_FAILURES();
+    if (f == 0) std::cout << "All skill parser tests passed.\n";
+    else std::cout << f << " skill parser test(s) failed.\n";
+    return f;
 }

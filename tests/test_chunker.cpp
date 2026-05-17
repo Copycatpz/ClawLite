@@ -2,8 +2,8 @@
 // TODO: B 同学补充测试用例
 
 #include "memory/chunker.h"
+#include "test_helpers.h"
 #include <iostream>
-#include <cassert>
 
 using namespace clawlite;
 
@@ -19,7 +19,7 @@ void testBasicChunking() {
 
     auto chunks = Chunker::chunkMarkdown("test.md", content, config);
 
-    assert(!chunks.empty());
+    TEST_ASSERT(!chunks.empty());
     // 验证块数大致正确
     // 100 行 * ~40 chars/line = 4000 chars ≈ 1000 tokens
     // chunk size 50 tokens, step 40 tokens → ~25 chunks
@@ -27,22 +27,24 @@ void testBasicChunking() {
 
     // 验证块的连续性
     for (size_t i = 1; i < chunks.size(); i++) {
-        assert(chunks[i].startLine >= chunks[i-1].startLine);
+        TEST_ASSERT(chunks[i].startLine >= chunks[i-1].startLine);
     }
     std::cout << "  [PASS] testChunkContinuity\n";
 }
 
 void testEmptyContent() {
     auto chunks = Chunker::chunkMarkdown("empty.md", "");
-    assert(chunks.empty());
+    TEST_ASSERT(chunks.empty());
     std::cout << "  [PASS] testEmptyContent\n";
 }
 
 void testSmallContent() {
     std::string content = "Hello world";
     auto chunks = Chunker::chunkMarkdown("small.md", content);
-    assert(chunks.size() == 1);
-    assert(chunks[0].text == "Hello world");
+    TEST_ASSERT(chunks.size() == 1);
+    if (!chunks.empty()) {
+        TEST_ASSERT(chunks[0].text == "Hello world");
+    }
     std::cout << "  [PASS] testSmallContent\n";
 }
 
@@ -54,10 +56,13 @@ void testOverlap() {
 
 int run_chunker_tests() {
     std::cout << "Chunker Tests:\n";
+    RESET_FAILURES();
     testBasicChunking();
     testEmptyContent();
     testSmallContent();
     testOverlap();
-    std::cout << "All chunker tests passed.\n";
-    return 0;
+    int f = GET_FAILURES();
+    if (f == 0) std::cout << "All chunker tests passed.\n";
+    else std::cout << f << " chunker test(s) failed.\n";
+    return f;
 }
