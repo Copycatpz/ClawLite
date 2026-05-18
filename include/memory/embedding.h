@@ -53,6 +53,37 @@ private:
     std::vector<double> textToVector(const std::string& text);
 };
 
+// ── 远程嵌入（OpenAI 兼容 API）────────────────────────────
+// 参考：openclaw-main/packages/memory-host-sdk/host/embeddings-remote-provider.ts
+// 兼容：OpenAI / Ollama / LM Studio / llama-server
+// API 格式：POST {baseUrl}/embeddings, 请求 {model, input}, 响应 {data: [{embedding}]}
+
+class RemoteEmbedding : public IEmbeddingProvider {
+public:
+    // baseUrl: 如 "http://localhost:11434/v1"（Ollama）或 "https://api.openai.com/v1"
+    // model: 如 "nomic-embed-text" 或 "text-embedding-3-small"
+    // apiKey: OpenAI 需要，Ollama/LM Studio 不需要
+    RemoteEmbedding(const std::string& baseUrl,
+                    const std::string& model,
+                    const std::string& apiKey = "");
+
+    std::vector<double> embedQuery(const std::string& text) override;
+    std::vector<std::vector<double>> embedBatch(
+        const std::vector<std::string>& texts
+    ) override;
+    int dimensions() const override;
+    std::string id() const override;
+
+private:
+    std::string m_baseUrl;
+    std::string m_model;
+    std::string m_apiKey;
+    int m_dims = 0;
+
+    // 调用 API 并解析响应
+    std::vector<std::vector<double>> callApi(const std::vector<std::string>& inputs);
+};
+
 // ── 余弦相似度计算 ────────────────────────────────────────
 // 参考：openclaw-main/packages/memory-host-sdk/host/internal.ts:cosineSimilarity
 // 算法：dot(a,b) / (||a|| * ||b||)

@@ -58,6 +58,11 @@ add_library(clawlite_memory STATIC
 )
 target_include_directories(clawlite_memory PUBLIC include)
 target_link_libraries(clawlite_memory PUBLIC clawlite_core sqlite3)
+# httplib（用于 RemoteEmbedding）
+target_include_directories(clawlite_memory PUBLIC third_party/httplib)
+if(WIN32)
+    target_link_libraries(clawlite_memory PUBLIC ws2_32)
+endif()
 
 # ── 模块 C：LLM ───────────────────────────────────────────
 
@@ -112,3 +117,13 @@ if(WIN32)
 endif()
 
 add_test(NAME all_tests COMMAND clawlite_tests)
+
+# ── RemoteEmbedding 测试（需要 llama-server 运行）────────
+add_executable(test_remote_embedding tests/test_remote_embedding.cpp)
+target_link_libraries(test_remote_embedding PRIVATE
+    clawlite_core
+    clawlite_memory
+)
+if(WIN32)
+    target_link_libraries(test_remote_embedding PRIVATE ws2_32)
+endif()
