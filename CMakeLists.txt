@@ -103,6 +103,7 @@ set(TEST_SOURCES
     tests/test_search.cpp
     tests/test_session_store.cpp
     tests/test_prompt_builder.cpp
+    tests/test_llm.cpp
 )
 
 add_executable(clawlite_tests ${TEST_SOURCES})

@@ -1,9 +1,16 @@
-// ClawLite — Agent 主循环实现
-// TODO: C 同学实现 — 数据结构课程重点（状态机）！
-
 #include "llm/harness.h"
 
+#include <sstream>
+
 namespace clawlite {
+namespace {
+
+std::string formatToolResult(const ToolResult& result) {
+    if (result.success) return result.output;
+    return std::string("Tool error: ") + result.error;
+}
+
+} // namespace
 
 AgentHarness::AgentHarness(
     LlmClient& llm,
@@ -17,96 +24,115 @@ RunResult AgentHarness::runTurn(
     const std::string& userInput,
     const RuntimePlan& plan
 ) {
-    // TODO: 实现 — Agent 主循环状态机！
-    //
-    // 参考：openclaw-main/src/agents/pi-embedded-runner/run/attempt.ts
-    //
-    // 这是整个项目最核心的算法，一定要实现好！
-    //
-    // 伪代码：
-    //   RunResult result;
-    //   m_state = AgentState::Idle;
-    //
-    //   // 构建完整消息列表
-    //   vector<Message> messages;
-    //   messages.push_back(Message::system(systemPrompt));
-    //   messages.insert(messages.end(), history.begin(), history.end());
-    //   messages.push_back(Message::user(userInput));
-    //
-    //   int roundCount = 0;
-    //
-    //   while (m_state != AgentState::Done && m_state != AgentState::Error) {
-    //       switch (m_state) {
-    //           case AgentState::Idle:
-    //               m_state = AgentState::Thinking;
-    //               break;
-    //
-    //           case AgentState::Thinking: {
-    //               // 调用 LLM
-    //               auto tools = m_tools.getAllTools();
-    //               LlmResponse resp = m_llm.chat(messages, tools);
-    //
-    //               if (!resp.success) {
-    //                   result.status = RunStatus::Error;
-    //                   result.error = resp.error;
-    //                   m_state = AgentState::Error;
-    //                   break;
-    //               }
-    //
-    //               // 将助手回复加入消息列表
-    //               Message assistantMsg = Message::assistant(resp.content);
-    //               assistantMsg.toolCalls = resp.toolCalls;
-    //               messages.push_back(assistantMsg);
-    //
-    //               if (!resp.toolCalls.empty()) {
-    //                   m_state = AgentState::ToolCalling;
-    //               } else {
-    //                   result.reply = resp.content;
-    //                   m_state = AgentState::Responding;
-    //               }
-    //               break;
-    //           }
-    //
-    //           case AgentState::ToolCalling: {
-    //               roundCount++;
-    //               if (roundCount >= plan.transport.maxToolRounds) {
-    //                   result.status = RunStatus::MaxTurnsExceeded;
-    //                   result.error = "max tool rounds exceeded";
-    //                   m_state = AgentState::Error;
-    //                   break;
-    //               }
-    //
-    //               // 执行所有工具调用
-    //               const auto& toolCalls = messages.back().toolCalls;
-    //               for (const auto& tc : toolCalls) {
-    //                   ToolResult tr = m_tools.execute(tc);
-    //                   messages.push_back(Message::toolResult(
-    //                       tc.id, tc.name, tr.output
-    //                   ));
-    //               }
-    //
-    //               m_state = AgentState::Thinking;  // 回到 Thinking 继续循环
-    //               break;
-    //           }
-    //
-    //           case AgentState::Responding:
-    //               result.status = RunStatus::Success;
-    //               result.totalTurns = roundCount;
-    //               m_state = AgentState::Done;
-    //               break;
-    //
-    //           default:
-    //               m_state = AgentState::Error;
-    //               break;
-    //       }
-    //   }
-    //
-    //   m_state = AgentState::Idle;
-    //   return result;
-
     RunResult result;
-    result.status = RunStatus::Error;
-    result.error = "not implemented";
+    if (!plan.validate()) {
+        result.status = RunStatus::Error;
+        result.error = "invalid runtime plan";
+        return result;
+    }
+
+    m_state = AgentState::Idle;
+
+    std::vector<Message> messages;
+    std::string effectiveSystemPrompt = plan.prompt.systemPromptOverride.empty()
+        ? systemPrompt
+        : plan.prompt.systemPromptOverride;
+    if (!effectiveSystemPrompt.empty()) {
+        messages.push_back(Message::system(effectiveSystemPrompt));
+    }
+    messages.insert(messages.end(), history.begin(), history.end());
+    Message userMsg = Message::user(userInput);
+    messages.push_back(userMsg);
+
+    if (m_memory) {
+        m_memory->ingest(userMsg);
+    }
+
+    int roundCount = 0;
+    int totalTokens = 0;
+    LlmResponse lastResponse;
+
+    while (m_state != AgentState::Done && m_state != AgentState::Error) {
+        switch (m_state) {
+            case AgentState::Idle:
+                m_state = AgentState::Thinking;
+                break;
+
+            case AgentState::Thinking: {
+                lastResponse = m_llm.chat(messages, m_tools.getAllTools());
+                if (!lastResponse.success) {
+                    result.status = RunStatus::Error;
+                    result.error = lastResponse.error;
+                    m_state = AgentState::Error;
+                    break;
+                }
+
+                totalTokens += lastResponse.promptTokens + lastResponse.completionTokens;
+
+                Message assistantMsg = Message::assistant(lastResponse.content);
+                assistantMsg.toolCalls = lastResponse.toolCalls;
+                messages.push_back(assistantMsg);
+                if (m_memory) {
+                    m_memory->ingest(assistantMsg);
+                }
+
+                if (!lastResponse.toolCalls.empty()) {
+                    m_state = AgentState::ToolCalling;
+                } else {
+                    result.reply = lastResponse.content;
+                    m_state = AgentState::Responding;
+                }
+                break;
+            }
+
+            case AgentState::ToolCalling: {
+                if (roundCount >= plan.transport.maxToolRounds) {
+                    result.status = RunStatus::MaxTurnsExceeded;
+                    result.error = "max tool rounds exceeded";
+                    m_state = AgentState::Error;
+                    break;
+                }
+                ++roundCount;
+
+                const auto toolCalls = messages.back().toolCalls;
+                for (const auto& tc : toolCalls) {
+                    ToolResult toolResult = m_tools.execute(tc);
+                    Message toolMsg = Message::toolResult(
+                        tc.id,
+                        tc.name,
+                        formatToolResult(toolResult)
+                    );
+                    messages.push_back(toolMsg);
+                    if (m_memory) {
+                        m_memory->ingest(toolMsg);
+                    }
+                }
+
+                m_state = AgentState::Thinking;
+                break;
+            }
+
+            case AgentState::Responding:
+                result.status = RunStatus::Success;
+                result.totalTurns = roundCount;
+                result.totalTokens = totalTokens;
+                m_state = AgentState::Done;
+                break;
+
+            case AgentState::Done:
+            case AgentState::Error:
+                break;
+        }
+    }
+
+    if (m_state == AgentState::Error && result.error.empty()) {
+        result.status = RunStatus::Error;
+        result.error = "agent harness entered error state";
+    }
+
+    result.totalTurns = roundCount;
+    result.totalTokens = totalTokens;
+    m_state = AgentState::Idle;
     return result;
 }
 
