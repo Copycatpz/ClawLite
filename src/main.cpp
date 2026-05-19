@@ -9,6 +9,7 @@
 #include "llm/harness.h"
 #include "llm/tool_executor.h"
 #include "llm/prompt_builder.h"
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #ifdef _WIN32
@@ -39,8 +40,12 @@ int main(int argc, char* argv[]) {
 
     // C: LLM 客户端
     LlmConfig llmConfig;
-    llmConfig.apiKey = "";  // TODO: 从环境变量或配置读取
-    llmConfig.model = "gpt-4o-mini";
+    const char* apiKey = std::getenv("CLAWLITE_API_KEY");
+    const char* baseUrl = std::getenv("CLAWLITE_BASE_URL");
+    const char* model = std::getenv("CLAWLITE_MODEL");
+    llmConfig.apiKey = apiKey ? apiKey : "";
+    llmConfig.baseUrl = baseUrl ? baseUrl : "https://api.deepseek.com";
+    llmConfig.model = model ? model : "deepseek-chat";
     LlmClient llm(llmConfig);
 
     // C: 工具执行器
