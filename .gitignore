@@ -1,66 +1,57 @@
-# Prerequisites
-*.d
+# ==========================================
+# 1. 项目本地生成的临时数据与测试结果 (精细匹配)
+# ==========================================
+benchmark.csv
+*.png
+project_structure.txt
+A_personal_report.docx
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
+# ==========================================
+# 2. C++ & CMake 编译构建产物
+# ==========================================
+build/
+.build/
+out/
+bin/
+Makefile
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeScripts/
+Targets.cmake
+# 忽略可执行文件（根据实际生成名字补充）
 *.exe
 *.out
 *.app
 
-# IDEs
+# ==========================================
+# 3. Python 虚拟环境与缓存（如果跑过脚本或绘图）
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.pytest_cache/
+
+# ==========================================
+# 4. IDE 编译器及系统临时文件
+# ==========================================
 .vscode/
-*.swp
-*.swo
 .idea/
-.vs/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.vcxproj
+*.user
 
-# CMake
-build/
-CMakeCache.txt
-CMakeFiles/
-CMakeScripts/
-cmake_install.cmake
-install_manifest.txt
-Makefile
-compile_commands.json
-CTestTestfile.cmake
-
-# SQLite
-*.db
-*.sqlite
-*.sqlite3
-*.db-journal
-*.db-shm
-*.db-wal
-
-# Project Specific
-ClawLite.zip
-openclaw-main/
-
-# OS
+# OS 临时文件
 .DS_Store
 Thumbs.db
+*.db
+*.sqlite
+compile_commands.json
+*.swp
+.vs/

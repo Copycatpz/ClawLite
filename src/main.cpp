@@ -9,6 +9,8 @@
 #include "llm/harness.h"
 #include "llm/tool_executor.h"
 #include "llm/prompt_builder.h"
+#include <chrono>
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -16,6 +18,17 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
+namespace {
+
+static std::string trimCopy(const std::string& s) {
+    auto begin = s.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos) return {};
+    auto end = s.find_last_not_of(" \t\r\n");
+    return s.substr(begin, end - begin + 1);
+}
+
+} // namespace
 
 using namespace clawlite;
 
@@ -48,6 +61,8 @@ int main(int argc, char* argv[]) {
     SkillRegistry skillRegistry;
     SkillFilterConfig filterCfg = SkillFilter::detectSystem();
     skillRegistry.loadFromWorkspace(workspaceDir, filterCfg);
+    skillRegistry.enableAutoReload(std::chrono::milliseconds(1500));
+
     // B: 上下文引擎（TODO: 实例化具体实现）
     // auto memory = ...;
 
@@ -75,7 +90,6 @@ int main(int argc, char* argv[]) {
 
     // ── REPL 循环 ─────────────────────────────────────────
 
-    //std::string workspaceDir = ".";
     while (true) {
         std::cout << "> ";
         std::string input;
@@ -90,7 +104,7 @@ int main(int argc, char* argv[]) {
             }
             else if (input == "/help") {
                 std::cout << "Commands:\n";
-                std::cout << "  /skills          - List loaded skills\n";
+                std::cout << "  /skills [prefix] - List loaded skills or complete by prefix\n";
                 std::cout << "  /tools           - List registered tools\n";
                 std::cout << "  /memory status   - Show memory status\n";
                 std::cout << "  /memory load <f> - Load file into memory\n";
@@ -98,12 +112,31 @@ int main(int argc, char* argv[]) {
                 std::cout << "  /sessions        - List sessions\n";
                 std::cout << "  /quit            - Exit\n";
             }
-            else if (input == "/skills") {
-                auto skills = skillRegistry.getActiveSkills();
-                std::cout << "Loaded " << skills.size() << " skills:\n";
-                for (const auto& s : skills) {
-                    std::cout << "  - " << s.definition.name
-                              << ": " << s.definition.description << "\n";
+            else if (input.rfind("/skills", 0) == 0) {
+                std::string tail = trimCopy(input.substr(std::string("/skills").size()));
+                if (tail.empty()) {
+                    auto skills = skillRegistry.getActiveSkills();
+                    std::cout << "Loaded " << skills.size() << " skills:\n";
+                    for (const auto& s : skills) {
+                        std::cout << "  - " << s.definition.name
+                                  << ": " << s.definition.description << "\n";
+                    }
+                } else {
+                    auto matches = skillRegistry.completeSkillNames(tail, 20);
+                    std::cout << "Skill completions for prefix `" << tail << "`:\n";
+                    if (matches.empty()) {
+                        std::cout << "  (none)\n";
+                    } else {
+                        for (const auto& name : matches) {
+                            const auto* skill = skillRegistry.findSkill(name);
+                            if (skill) {
+                                std::cout << "  - " << skill->definition.name
+                                          << ": " << skill->definition.description << "\n";
+                            } else {
+                                std::cout << "  - " << name << "\n";
+                            }
+                        }
+                    }
                 }
             }
             else if (input == "/tools") {
@@ -160,5 +193,6 @@ int main(int argc, char* argv[]) {
         std::cout << "\n";
     }
 
+    skillRegistry.disableAutoReload();
     return 0;
 }
